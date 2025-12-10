@@ -217,6 +217,84 @@ def save_signature(order_id: str, data_url: str):
     return target
 
 
+FIRMA_TEMPLATE = """
+<!doctype html>
+<html lang="es">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Firmar entrega</title>
+    <style>
+        body { font-family: "Segoe UI", Arial, sans-serif; background: #0f172a; color: #e2e8f0; margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center; padding:20px; }
+        .card { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); border-radius: 14px; padding: 20px; width: min(500px, 100%); box-shadow: 0 20px 50px rgba(0,0,0,0.3); }
+        h1 { margin: 0 0 12px; }
+        p { margin: 0 0 10px; color: #cbd5e1; }
+        canvas { width: 100%; height: 220px; border: 1px dashed rgba(255,255,255,0.3); border-radius: 10px; background: rgba(255,255,255,0.04); }
+        button { margin-top: 12px; padding: 10px 14px; border: none; border-radius: 10px; font-weight: 700; cursor: pointer; }
+        .primary { background: linear-gradient(135deg, #7dd3fc, #f472b6); color: #0f172a; width: 100%; }
+        .secondary { background: rgba(255,255,255,0.1); color: #e2e8f0; margin-right: 8px; }
+        .row { display: flex; gap: 8px; margin-top: 8px; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>Firma de entrega</h1>
+        <p>Por favor, firme en el recuadro.</p>
+        <canvas id="pad"></canvas>
+        <div class="row">
+            <button class="secondary" id="clear" type="button">Borrar</button>
+            <button class="primary" id="save" type="button">Guardar firma</button>
+        </div>
+        <div id="status" style="margin-top:10px; color:#cbd5e1;"></div>
+    </div>
+    <script>
+        const canvas = document.getElementById('pad');
+        const ctx = canvas.getContext('2d');
+        const dpr = window.devicePixelRatio || 1;
+        const rect = canvas.getBoundingClientRect();
+        canvas.width = rect.width * dpr;
+        canvas.height = rect.height * dpr;
+        ctx.scale(dpr, dpr);
+        ctx.lineWidth = 2;
+        ctx.lineCap = 'round';
+        let drawing = false;
+        function pos(e) {
+            const r = canvas.getBoundingClientRect();
+            const x = (e.touches ? e.touches[0].clientX : e.clientX) - r.left;
+            const y = (e.touches ? e.touches[0].clientY : e.clientY) - r.top;
+            return {x, y};
+        }
+        function start(e) { drawing = true; ctx.beginPath(); const p = pos(e); ctx.moveTo(p.x, p.y); }
+        function move(e) { if (!drawing) return; const p = pos(e); ctx.lineTo(p.x, p.y); ctx.stroke(); }
+        function end() { drawing = false; }
+        canvas.addEventListener('mousedown', start);
+        canvas.addEventListener('mousemove', move);
+        window.addEventListener('mouseup', end);
+        canvas.addEventListener('touchstart', e => { e.preventDefault(); start(e); });
+        canvas.addEventListener('touchmove', e => { e.preventDefault(); move(e); });
+        canvas.addEventListener('touchend', end);
+        document.getElementById('clear').onclick = () => ctx.clearRect(0,0,canvas.width,canvas.height);
+        document.getElementById('save').onclick = async () => {
+            const dataUrl = canvas.toDataURL('image/png');
+            const res = await fetch(window.location.pathname.replace('/firmar','/api/orders') + '/firma', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ firma: dataUrl })
+            });
+            const status = document.getElementById('status');
+            if (res.ok) {
+                status.textContent = 'Firma guardada. Ya puede cerrar esta pestaña.';
+            } else {
+                const err = await res.json().catch(() => ({}));
+                status.textContent = err.error || 'Error al guardar.';
+            }
+        };
+    </script>
+</body>
+</html>
+"""
+
+
 app = Flask(__name__)
 
 
@@ -536,7 +614,7 @@ def api_save_signature(order_id):
 
 @app.route("/firmar/<order_id>")
 def firmar(order_id):
-    return render_template("firma.html", order_id=order_id)
+    return render_template_string(FIRMA_TEMPLATE, order_id=order_id)
 
 
 if __name__ == "__main__":
